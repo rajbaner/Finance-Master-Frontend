@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { Eye, EyeOff, ArrowRight, CheckCircle, XCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
-
-const BASE_URL = 'http://localhost:8080'; // 🔧 Change to your backend URL
+import { login, saveToken } from '../services/authService';
 
 const initialState = { email: '', password: '' };
 
@@ -11,27 +10,28 @@ export default function LoginForm() {
     const [showPassword, setShowPassword] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState(null);
-    const [step, setStep] = useState('form'); // 'form' | 'success' | 'failed'
+    const [step, setStep] = useState('form');
+    const [resultMessage, setResultMessage] = useState('');
 
     const handleChange = (field) => (e) =>
         setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
+    /* POST /auth/login */
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError(null);
         setSubmitting(true);
-        // 🔧 TODO: replace this block with the real API call:
-        // const res = await fetch(`${BASE_URL}/auth/login`, {
-        //   method: 'POST',
-        //   headers: { 'Content-Type': 'application/json' },
-        //   body: JSON.stringify({ email: form.email, password: form.password }),
-        // });
-        // const data = await res.json();
-        // if (!res.ok) { setStep('failed'); setSubmitting(false); return; }
-        // localStorage.setItem('fm_token', data.token);
-        await new Promise((r) => setTimeout(r, 800));
-        setSubmitting(false);
-        setStep('success'); // change to 'failed' to test the error screen
+        try {
+            const data = await login({ email: form.email, password: form.password });
+            saveToken(data.token);
+            setResultMessage(data.message || 'Login successful!');
+            setStep('success');
+        } catch (err) {
+            setResultMessage(err.message);
+            setStep('failed');
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     if (step === 'success') {
@@ -39,9 +39,9 @@ export default function LoginForm() {
             <ResultScreen
                 success
                 title="Login Successful!"
-                message="Welcome back! Redirecting you to your dashboard…"
+                message={resultMessage}
                 actionLabel="Go to Dashboard"
-                onAction={() => { window.location.href = '/dashboard'; }} // 🔧 Update path
+                onAction={() => { window.location.href = '/dashboard'; }}
             />
         );
     }
@@ -51,9 +51,9 @@ export default function LoginForm() {
             <ResultScreen
                 success={false}
                 title="Login Failed"
-                message="Invalid email or password. Please check your credentials and try again."
+                message={resultMessage}
                 actionLabel="Try Again"
-                onAction={() => setStep('form')}
+                onAction={() => { setStep('form'); setResultMessage(''); }}
             />
         );
     }
@@ -109,21 +109,17 @@ export default function LoginForm() {
     );
 }
 
-/* ─── Result Screen ─── */
 function ResultScreen({ success, title, message, actionLabel, onAction }) {
     return (
         <div className="relative z-10 mx-auto w-full max-w-2xl rounded-2xl border border-fm-border bg-fm-bg-panel/80 p-6 backdrop-blur-sm sm:p-8 md:p-10">
             <div className="flex flex-col items-center py-6">
-                <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 border ${success
-                        ? 'bg-green-500/10 border-green-500/30'
-                        : 'bg-red-500/10 border-red-500/30'
+                <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 border ${success ? 'bg-green-500/10 border-green-500/30' : 'bg-red-500/10 border-red-500/30'
                     }`}>
                     {success
                         ? <CheckCircle className="w-10 h-10 text-green-400" />
                         : <XCircle className="w-10 h-10 text-red-400" />
                     }
                 </div>
-
                 <h3 className={`text-2xl sm:text-3xl font-semibold text-center ${success ? 'text-green-400' : 'text-red-400'
                     }`}>
                     {title}
@@ -131,13 +127,12 @@ function ResultScreen({ success, title, message, actionLabel, onAction }) {
                 <p className="mt-3 text-fm-silver text-base sm:text-lg text-center max-w-sm">
                     {message}
                 </p>
-
                 <button
                     type="button"
                     onClick={onAction}
                     className={`mt-10 flex items-center gap-3 rounded-2xl px-10 py-4 text-lg font-semibold transition hover:opacity-90 ${success
-                            ? 'bg-fm-orange text-fm-bg'
-                            : 'bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30'
+                        ? 'bg-fm-orange text-fm-bg'
+                        : 'bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30'
                         }`}
                 >
                     {actionLabel}
@@ -147,8 +142,6 @@ function ResultScreen({ success, title, message, actionLabel, onAction }) {
         </div>
     );
 }
-
-/* ─── Shared sub-components ─── */
 
 function Field({ label, type = 'text', value, ...props }) {
     const filled = Boolean(value);
@@ -189,11 +182,7 @@ function PasswordField({ label, visible, onToggle, value, ...props }) {
                     aria-label={visible ? 'Hide password' : 'Show password'}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-fm-orange"
                 >
-                    {visible ? (
-                        <Eye className="h-4 w-4 sm:h-5 sm:w-5" />
-                    ) : (
-                        <EyeOff className="h-4 w-4 sm:h-5 sm:w-5" />
-                    )}
+                    {visible ? <Eye className="h-4 w-4 sm:h-5 sm:w-5" /> : <EyeOff className="h-4 w-4 sm:h-5 sm:w-5" />}
                 </button>
             </div>
         </label>

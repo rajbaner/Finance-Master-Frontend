@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Eye, EyeOff, ArrowRight, RotateCcw, CheckCircle, XCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
-
-const BASE_URL = 'http://localhost:8080'; // 🔧 Change to your backend URL
+import { signupInitiate, signupVerify, signupResend, saveToken } from '../services/authService';
 
 const initialState = {
   firstName: '',
@@ -12,10 +11,31 @@ const initialState = {
   confirmPassword: '',
 };
 
+const validatePassword = (password) => ({
+  length: password.length >= 8,
+  uppercase: /[A-Z]/.test(password),
+  lowercase: /[a-z]/.test(password),
+  number: /[0-9]/.test(password),
+  special: /[^A-Za-z0-9]/.test(password),
+});
+
+const isPasswordValid = (rules) => Object.values(rules).every(Boolean);
+
+function PasswordRule({ satisfied, text }) {
+  return (
+    <div className={`flex items-center gap-2 text-sm md:text-base mt-1 ${satisfied ? 'text-green-400' : 'text-red-400'}`}>
+      {satisfied ? <span className="font-bold">✓</span> : <span className="font-bold">✕</span>}
+      <span>{text}</span>
+    </div>
+  );
+}
+
 /* ─────────────────────────────────────────
-   STEP 1 — Signup Form
+   STEP 1 — Signup Fields
 ───────────────────────────────────────── */
 function SignupFields({ form, handleChange, showPassword, setShowPassword, showConfirm, setShowConfirm, error, submitting }) {
+  const pwdRules = validatePassword(form.password);
+
   return (
     <>
       <div className="mt-20 grid grid-cols-1 gap-x-8 gap-y-7 xl:grid-cols-2">
@@ -45,15 +65,24 @@ function SignupFields({ form, handleChange, showPassword, setShowPassword, showC
           required
           className="xl:col-span-2"
         />
-        <PasswordField
-          label="Password"
-          value={form.password}
-          onChange={handleChange('password')}
-          visible={showPassword}
-          onToggle={() => setShowPassword((v) => !v)}
-          autoComplete="new-password"
-          required
-        />
+        <div className="flex flex-col">
+          <PasswordField
+            label="Password"
+            value={form.password}
+            onChange={handleChange('password')}
+            visible={showPassword}
+            onToggle={() => setShowPassword((v) => !v)}
+            autoComplete="new-password"
+            required
+          />
+          <div className="mt-3 flex flex-col gap-1 pl-2">
+            <PasswordRule satisfied={pwdRules.length} text="Minimum 8 characters" />
+            <PasswordRule satisfied={pwdRules.uppercase} text="At least 1 uppercase" />
+            <PasswordRule satisfied={pwdRules.lowercase} text="At least 1 lowercase" />
+            <PasswordRule satisfied={pwdRules.number} text="At least 1 number" />
+            <PasswordRule satisfied={pwdRules.special} text="At least 1 special char" />
+          </div>
+        </div>
         <PasswordField
           label="Re-Enter Password"
           value={form.confirmPassword}
@@ -137,7 +166,6 @@ function OTPScreen({ email, onVerify, onResend, verifying, resending, error }) {
         <span className="text-fm-orange font-medium">{email}</span>. Enter it below.
       </p>
 
-      {/* OTP Boxes */}
       <div className="mt-10 flex gap-3 sm:gap-4" onPaste={handlePaste}>
         {otp.map((digit, i) => (
           <input
@@ -163,6 +191,7 @@ function OTPScreen({ email, onVerify, onResend, verifying, resending, error }) {
       )}
 
       <button
+        type="button"
         onClick={() => onVerify(otpValue)}
         disabled={verifying || otpValue.length < 6}
         className="mt-8 flex w-full max-w-xs items-center justify-center gap-3 rounded-2xl bg-fm-orange py-4 text-lg font-semibold text-fm-bg transition hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -172,12 +201,50 @@ function OTPScreen({ email, onVerify, onResend, verifying, resending, error }) {
       </button>
 
       <button
+        type="button"
         onClick={onResend}
         disabled={resending}
         className="mt-4 flex items-center gap-2 text-fm-silver hover:text-fm-orange transition text-sm sm:text-base disabled:opacity-50"
       >
         <RotateCcw className={`h-4 w-4 ${resending ? 'animate-spin' : ''}`} />
         {resending ? 'Resending…' : "Didn't get it? Resend OTP"}
+      </button>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────
+   STEP 3 — Result Screen
+───────────────────────────────────────── */
+function ResultScreen({ success, message, onBack, backLabel }) {
+  return (
+    <div className="mt-16 flex flex-col items-center py-8">
+      <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 border ${success ? 'bg-green-500/10 border-green-500/30' : 'bg-red-500/10 border-red-500/30'
+        }`}>
+        {success
+          ? <CheckCircle className="w-10 h-10 text-green-400" />
+          : <XCircle className="w-10 h-10 text-red-400" />
+        }
+      </div>
+
+      <h3 className={`text-2xl sm:text-3xl font-semibold text-center ${success ? 'text-green-400' : 'text-red-400'
+        }`}>
+        {success ? 'Registration Successful!' : 'Verification Failed'}
+      </h3>
+      <p className="mt-3 text-fm-silver text-base sm:text-lg text-center max-w-sm">
+        {message}
+      </p>
+
+      <button
+        type="button"
+        onClick={onBack}
+        className={`mt-10 flex items-center gap-3 rounded-2xl px-10 py-4 text-lg font-semibold transition hover:opacity-90 ${success
+          ? 'bg-fm-orange text-fm-bg'
+          : 'bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30'
+          }`}
+      >
+        {backLabel}
+        <ArrowRight className="h-5 w-5" />
       </button>
     </div>
   );
@@ -192,15 +259,13 @@ export default function SignupForm() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
-
-  // OTP step state
-  const [step, setStep] = useState('form'); // 'form' | 'otp' | 'success' | 'failed'
+  const [step, setStep] = useState('form');
   const [pendingEmail, setPendingEmail] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
   const [otpError, setOtpError] = useState(null);
+  const [resultMessage, setResultMessage] = useState('');
 
-  /* Live password match validation */
   useEffect(() => {
     if (form.password && form.confirmPassword) {
       setError(form.password !== form.confirmPassword ? 'Passwords do not match.' : null);
@@ -212,47 +277,69 @@ export default function SignupForm() {
   const handleChange = (field) => (e) =>
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
-  /* STEP 1 — Initiate signup (MOCKED — swap in real fetch when backend is ready) */
+  /* STEP 1 — POST /auth/signup/initiate */
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    const pwdRules = validatePassword(form.password);
+    const passwordValid = isPasswordValid(pwdRules);
+
+    if (!passwordValid) {
+      setError('Password does not meet all requirements');
+      return;
+    }
+
     if (form.password !== form.confirmPassword) {
       setError('Passwords do not match.');
       return;
     }
     setSubmitting(true);
-    // 🔧 TODO: replace this timeout with the real API call below
-    // const res = await fetch(`${BASE_URL}/auth/signup/initiate`, { ... });
-    await new Promise((r) => setTimeout(r, 600)); // simulate network delay
-    setPendingEmail(form.email);
-    setStep('otp');
-    setSubmitting(false);
+    setError(null);
+    try {
+      await signupInitiate({
+        firstName: form.firstName,
+        lastName: form.lastName,
+        email: form.email,
+        password: form.password,
+      });
+      setPendingEmail(form.email);
+      setStep('otp');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  /* STEP 2 — Verify OTP (MOCKED — swap in real fetch when backend is ready) */
+  /* STEP 2 — POST /auth/signup/verify */
   const handleVerify = async (otp) => {
     setVerifying(true);
     setOtpError(null);
-    // 🔧 TODO: replace this block with the real API call:
-    // const res = await fetch(`${BASE_URL}/auth/signup/verify`, {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({ email: pendingEmail, otp }),
-    // });
-    // const data = await res.json();
-    // if (!res.ok) { setStep('failed'); setVerifying(false); return; }
-    // localStorage.setItem('fm_token', data.token);
-    await new Promise((r) => setTimeout(r, 800));
-    setVerifying(false);
-    setStep('success'); // change to 'failed' to test the error screen
+    try {
+      const data = await signupVerify({ email: pendingEmail, otp });
+      saveToken(data.token);
+      setResultMessage(data.message || 'User registered successfully!');
+      setStep('success');
+    } catch (err) {
+      setOtpError(err.message);
+      setResultMessage(err.message);
+      setStep('failed');
+    } finally {
+      setVerifying(false);
+    }
   };
 
-  /* Resend OTP (MOCKED) */
+  /* Resend OTP — POST /auth/signup/resend */
   const handleResend = async () => {
     setResending(true);
     setOtpError(null);
-    // 🔧 TODO: replace with real fetch(`${BASE_URL}/auth/signup/resend`, { ... })
-    await new Promise((r) => setTimeout(r, 600));
-    setResending(false);
+    try {
+      await signupResend({ email: pendingEmail });
+    } catch (err) {
+      setOtpError(err.message);
+    } finally {
+      setResending(false);
+    }
   };
 
   return (
@@ -303,7 +390,7 @@ export default function SignupForm() {
       {step === 'success' && (
         <ResultScreen
           success
-          message="User registered successfully!"
+          message={resultMessage}
           onBack={() => { window.location.href = '/login'; }}
           backLabel="Go to Login"
         />
@@ -312,8 +399,8 @@ export default function SignupForm() {
       {step === 'failed' && (
         <ResultScreen
           success={false}
-          message="OTP verification failed. Please try again."
-          onBack={() => setStep('otp')}
+          message={resultMessage}
+          onBack={() => { setStep('otp'); setOtpError(null); }}
           backLabel="Try Again"
         />
       )}
@@ -321,51 +408,9 @@ export default function SignupForm() {
   );
 }
 
-/* ─────────────────────────────────────────
-   STEP 3 — Result Screen (success / failed)
-───────────────────────────────────────── */
-function ResultScreen({ success, message, onBack, backLabel }) {
-  return (
-    <div className="mt-16 flex flex-col items-center py-8">
-      {/* Icon */}
-      <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 border ${success
-          ? 'bg-green-500/10 border-green-500/30'
-          : 'bg-red-500/10 border-red-500/30'
-        }`}>
-        {success
-          ? <CheckCircle className="w-10 h-10 text-green-400" />
-          : <XCircle className="w-10 h-10 text-red-400" />
-        }
-      </div>
-
-      {/* Message */}
-      <h3 className={`text-2xl sm:text-3xl font-semibold text-center ${success ? 'text-green-400' : 'text-red-400'
-        }`}>
-        {success ? 'Registration Successful!' : 'Verification Failed'}
-      </h3>
-      <p className="mt-3 text-fm-silver text-base sm:text-lg text-center max-w-sm">
-        {message}
-      </p>
-
-      {/* Back / next action */}
-      <button
-        type="button"
-        onClick={onBack}
-        className={`mt-10 flex items-center gap-3 rounded-2xl px-10 py-4 text-lg font-semibold transition hover:opacity-90 ${success
-            ? 'bg-fm-orange text-fm-bg'
-            : 'bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30'
-          }`}
-      >
-        {backLabel}
-        <ArrowRight className="h-5 w-5" />
-      </button>
-    </div>
-  );
-}
-
 /* ─── Shared sub-components ─── */
 
-function Field({ label, type = 'text', className = '', ...props }) {
+function Field({ label, type = 'text', className = '', value, ...props }) {
   return (
     <label className={`block ${className}`}>
       <span className="mb-3 block text-base md:text-lg lg:text-xl text-fm-silver">
@@ -373,14 +418,16 @@ function Field({ label, type = 'text', className = '', ...props }) {
       </span>
       <input
         type={type}
-        className="w-full rounded-xl border border-fm-border bg-fm-input px-6 py-5 text-lg md:text-xl text-fm-white placeholder:text-fm-silver/50 outline-none transition focus:border-fm-orange"
+        value={value}
+        className={`w-full rounded-xl border border-fm-border px-6 py-5 text-lg md:text-xl placeholder:text-fm-silver/50 outline-none transition focus:border-fm-orange ${value ? 'bg-fm-input-filled text-white/80 font-medium' : 'bg-fm-input text-fm-white'
+          }`}
         {...props}
       />
     </label>
   );
 }
 
-function PasswordField({ label, visible, onToggle, ...props }) {
+function PasswordField({ label, visible, onToggle, value, ...props }) {
   return (
     <label className="block">
       <span className="mb-3 block text-base md:text-lg lg:text-xl text-fm-silver">
@@ -389,7 +436,9 @@ function PasswordField({ label, visible, onToggle, ...props }) {
       <div className="relative">
         <input
           type={visible ? 'text' : 'password'}
-          className="w-full rounded-xl border border-fm-border bg-fm-input px-6 py-5 pr-16 text-lg md:text-xl text-fm-white placeholder:text-fm-silver/50 outline-none transition focus:border-fm-orange"
+          value={value}
+          className={`w-full rounded-xl border border-fm-border px-6 py-5 pr-16 text-lg md:text-xl placeholder:text-fm-silver/50 outline-none transition focus:border-fm-orange ${value ? 'bg-fm-input-filled text-white/80 font-medium' : 'bg-fm-input text-fm-white'
+            }`}
           {...props}
         />
         <button
